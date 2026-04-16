@@ -10,7 +10,7 @@ RUN apt-get update && \
     make && \
     rm -rf /var/lib/apt/lists/*  # 清理缓存，最小化镜像
 
-# 2. 配置SSH（允许root登录，设置密码）
+# 2. 配置SSH（允许root登录，设置密码） jkfdhgjkd
 RUN mkdir -p /run/sshd && \
     echo "root:123456" | chpasswd && \
     sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
