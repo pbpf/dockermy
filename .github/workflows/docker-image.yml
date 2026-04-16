@@ -1,6 +1,5 @@
-name: Build Docker Image Only
+name: Build & Export Docker Image
 
-# 提交代码时自动构建
 on:
   push:
     branches: [ main ]
@@ -11,7 +10,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 只构建，不登录、不推送
+      # 构建镜像
       - name: Build Docker image
-        run: |
-          docker build -t dockermy .
+        run: docker build -t dockermy .
+
+      # 导出镜像为文件
+      - name: Export Docker image
+        run: docker save -o dockermy.tar dockermy
+
+      # 上传为构建产物（你可以下载）
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dockermy-image
+          path: dockermy.tar
