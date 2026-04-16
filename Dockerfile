@@ -1,4 +1,4 @@
-FROM registry.aliyuncs.com/library/python:3.13.5-slim-bookworm
+FROM python:3.13.5-slim-bookworm
 
 # 1. 安装需要的工具：sshd + git + gcc 完整编译工具链
 RUN apt-get update && \
