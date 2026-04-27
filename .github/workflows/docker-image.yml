@@ -1,26 +1,61 @@
-name: Build & Export Docker Image
+name: Build llama.cpp for CentOS 7
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # 重要：宿主必须是 Ubuntu，actions 在这里运行
     steps:
       - uses: actions/checkout@v4
 
-      # 构建镜像
-      - name: Build Docker image
-        run: docker build -t dockermy .
+      - name: Build inside CentOS 7 container
+        run: |
+          # 在宿主机的当前目录下创建工作目录
+          mkdir -p build_artifacts
+          cd build_artifacts
 
-      # 导出镜像为文件
-      - name: Export Docker image
-        run: docker save -o dockermy.tar dockermy
+          # 使用 docker 运行 CentOS 7，编译产出放在 /workspace 并映射到宿主当前目录
+          docker run --rm -v "$PWD":/workspace centos:7 bash -c "
+            set -ex
+            cd /workspace
 
-      # 上传为构建产物（你可以下载）
-      - name: Upload artifact
+            # 安装基础工具和 devtoolset-11
+            yum install -y centos-release-scl epel-release
+            yum install -y devtoolset-11-gcc-c++ devtoolset-11-gcc cmake3 git wget which
+            ln -sf /usr/bin/cmake3 /usr/bin/cmake
+
+            # 安装 CUDA 12.4（静默）
+            wget https://developer.download.nvidia.com/compute/cuda/12.4.0/local_installers/cuda_12.4.0_550.54.14_linux.run
+            chmod +x cuda_12.4.0_550.54.14_linux.run
+            ./cuda_12.4.0_550.54.14_linux.run --toolkit --silent --override
+            echo '/usr/local/cuda-12.4/lib64' > /etc/ld.so.conf.d/cuda.conf
+            ldconfig
+
+            # 设置编译环境
+            source /opt/rh/devtoolset-11/enable
+            export PATH=/usr/local/cuda-12.4/bin:\$PATH
+            export LD_LIBRARY_PATH=/usr/local/cuda-12.4/lib64:\$LD_LIBRARY_PATH
+
+            # 配置 llama.cpp（使用静态链接，但跳过 glibc 静态，避免麻烦）
+            # 注意：这里不设置 -static，让 glibc 动态链接，但因为编译环境就是 CentOS 7，运行时自然兼容
+            git clone https://github.com/ggerganov/llama.cpp.git .
+            mkdir build && cd build
+            cmake .. \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DGGML_CUDA=ON \
+              -DCMAKE_CUDA_ARCHITECTURES='80' \
+              -DGGML_CUDA_FORCE_MMQ=ON \
+              -DGGML_CUDA_FORCE_CUBLAS=OFF \
+              -DGGML_AVX512=ON \
+              -DBUILD_SHARED_LIBS=OFF
+
+            cmake --build . --config Release -j \$(nproc)
+            # 编译好的二进制文件在 build/bin/ 中
+          "
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dockermy-image
-          path: dockermy.tar
+          name: llama-cpp-centos7-avx512-cuda
+          path: build_artifacts/build/bin/
