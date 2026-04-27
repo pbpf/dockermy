@@ -9,53 +9,57 @@ env:
 
 jobs:
   build-cuda:
-    runs-on: ubuntu-latest
-    container:
-      image: centos:7
-
+    runs-on: ubuntu-latest   # 宿主机 = Ubuntu, 拥有现代 glibc
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Build in CentOS 7 container
         run: |
-          yum install -y centos-release-scl epel-release
-          yum install -y devtoolset-11-gcc-c++ devtoolset-11-gcc
-          yum install -y cmake3 git wget which
-          ln -s /usr/bin/cmake3 /usr/bin/cmake
-
-      - name: Install CUDA Toolkit
-        run: |
-          wget https://developer.download.nvidia.com/compute/cuda/${CUDA_VERSION}/local_installers/cuda_${CUDA_VERSION}_linux.run
-          chmod +x cuda_${CUDA_VERSION}_linux.run
-          ./cuda_${CUDA_VERSION}_linux.run --toolkit --silent --override
-          echo "/usr/local/cuda-${CUDA_VERSION}/lib64" > /etc/ld.so.conf.d/cuda.conf
-          ldconfig
-
-      - name: Set up environment
-        run: |
-          echo "CC=/opt/rh/devtoolset-11/root/usr/bin/gcc" >> $GITHUB_ENV
-          echo "CXX=/opt/rh/devtoolset-11/root/usr/bin/g++" >> $GITHUB_ENV
-          echo "PATH=/usr/local/cuda-${CUDA_VERSION}/bin:$PATH" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/usr/local/cuda-${CUDA_VERSION}/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-
-      - name: Configure with CMake
-        run: |
-          mkdir build && cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-            -DGGML_CUDA=ON \
-            -DCMAKE_CUDA_ARCHITECTURES="80" \
-            -DGGML_CUDA_FORCE_MMQ=ON \
-            -DGGML_CUDA_FORCE_CUBLAS=OFF \
-            -DGGML_AVX512=ON \
-            -DBUILD_SHARED_LIBS=OFF
-
-      - name: Build
-        run: |
+          # 创建并进入构建目录
+          mkdir -p build
           cd build
-          # 使用 nproc 获取所有可用的 CPU 核心并行编译
-          cmake --build . --config Release -j $(nproc)
+
+          # 使用 Docker 运行 CentOS 7 容器进行编译
+          docker run --rm \
+            -v $(pwd):/workspace \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            centos:7 /bin/bash -c "
+              set -ex
+              cd /workspace
+
+              # 安装依赖 (devtoolset-11, cmake3, wget)
+              yum install -y centos-release-scl epel-release
+              yum install -y devtoolset-11-gcc-c++ devtoolset-11-gcc
+              yum install -y cmake3 git wget which
+              ln -sf /usr/bin/cmake3 /usr/bin/cmake
+
+              # 安装 CUDA 12.4 Toolkit (静默安装)
+              wget https://developer.download.nvidia.com/compute/cuda/${CUDA_VERSION}/local_installers/cuda_${CUDA_VERSION}_linux.run
+              chmod +x cuda_${CUDA_VERSION}_linux.run
+              ./cuda_${CUDA_VERSION}_linux.run --toolkit --silent --override
+              echo '/usr/local/cuda-${CUDA_VERSION}/lib64' > /etc/ld.so.conf.d/cuda.conf
+              ldconfig
+
+              # 设置编译器环境
+              export CC=/opt/rh/devtoolset-11/root/usr/bin/gcc
+              export CXX=/opt/rh/devtoolset-11/root/usr/bin/g++
+              export PATH=/usr/local/cuda-${CUDA_VERSION}/bin:\$PATH
+              export LD_LIBRARY_PATH=/usr/local/cuda-${CUDA_VERSION}/lib64:\$LD_LIBRARY_PATH
+
+              # CMake 配置 (静态链接，AVX512)
+              cmake .. \
+                -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                -DGGML_CUDA=ON \
+                -DCMAKE_CUDA_ARCHITECTURES='80' \
+                -DGGML_CUDA_FORCE_MMQ=ON \
+                -DGGML_CUDA_FORCE_CUBLAS=OFF \
+                -DGGML_AVX512=ON \
+                -DBUILD_SHARED_LIBS=OFF
+
+              # 编译
+              cmake --build . --config Release -j \$(nproc)
+            "
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
